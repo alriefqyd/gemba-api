@@ -9,6 +9,13 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
+use PhpOffice\PhpPresentation\DocumentLayout;
+use PhpOffice\PhpPresentation\IOFactory;
+use PhpOffice\PhpPresentation\PhpPresentation;
+use PhpOffice\PhpPresentation\Shape\RichText;
+use PhpOffice\PhpPresentation\Style\Alignment;
+use PhpOffice\PhpPresentation\Style\Color;
+use PhpOffice\PhpPresentation\Style\Fill;
 
 class ProjectController extends Controller
 {
@@ -34,28 +41,26 @@ class ProjectController extends Controller
         try {
             DB::beginTransaction();
 
-            // Create a new project
             $project = Project::create([
                 'project_title' => $request->project_title,
                 'project_no' => $request->project_no,
                 'project_area' => $request->project_area,
-                'images' => "null.jpg"  // Set project images to null initially
+                'images' => "null.jpg",
+                'created_by' => auth()->user()->id,
+                'updated_by' => auth()->user()->id,
             ]);
 
-            // Handle each finding and upload the image
             foreach ($request->findings as $f) {
                 $imagePath = null;
 
-//                 Check if image is uploaded
                 if (isset($f['image']) && $f['image']->isValid()) {
                     $imagePath = $f['image']->store('findings_images', 'public');  // Store image in the 'public/findings_images' directory
                 }
 
-                // Save finding along with the image path
                 $project->findings()->create([
                     'finding_type' => $f['finding_type'],
                     'date' => $f['date'],
-                    'image' => $imagePath,  // Save the image path in the database
+                    'image' => $imagePath,
                     'safety_officer' => $f['safety_officer'],
                     'supervisor' => $f['supervisor'],
                     'finding_description' => $f['finding_description'],
@@ -186,11 +191,6 @@ class ProjectController extends Controller
         }
     }
 
-
-
-
-
-
     public function delete(Project $project){
         DB::beginTransaction();
         try {
@@ -219,5 +219,149 @@ class ProjectController extends Controller
             'data' => $project
         ]);
     }
+
+    public function generatePptx(Project $project)
+    {
+        // Create a new PowerPoint presentation object
+        $ppt = new PhpPresentation();
+
+        // Define the desired aspect ratio dimensions
+        $width = 960;  // Width in EMUs (20 cm)
+
+        // Set the slide dimensions
+        $ppt->getLayout()->setDocumentLayout(DocumentLayout::LAYOUT_SCREEN_16X9);
+
+        // Create the first slide
+        $slide1 = $ppt->getActiveSlide();
+
+        // Set background image for the first slide
+        $bgImagePath = storage_path('app/public/bg_slide.png'); // Path to background image
+        if (file_exists($bgImagePath)) {
+            $bgShape = $slide1->createDrawingShape();
+            $bgShape->setPath($bgImagePath)
+                ->setWidth($width)
+                ->setHeight(540) // Set this according to your slide height requirement
+                ->setOffsetX(0)
+                ->setOffsetY(0)
+                ->setResizeProportional(true); // Resize proportionally
+        }
+
+        // Add title to the slide with specified coordinates
+        $titleShape = $slide1->createRichTextShape()
+            ->setHeight(100)
+            ->setWidth(380)
+            ->setOffsetX(580) // Set left offset to 12.3 EMUs
+            ->setOffsetY(100); // Set top offset to 2.5 EMUs
+        $titleShape->getActiveParagraph()->getAlignment()->setHorizontal(Alignment::HORIZONTAL_LEFT);
+        $titleRun = $titleShape->createTextRun($project->project_title);
+        $titleRun->getFont()->setBold(true)->setSize(16)->setColor(new Color('FFFFFF'));
+
+        // Continue with other content...
+
+        // Slide dimensions and padding for layout
+        $slideWidth = 960; // Typical width for a slide in PowerPoint
+        $sectionWidth = ($slideWidth / 3) - 20; // Each section takes a third minus some padding
+        $imageHeight = 100; // Adjusted height for better proportionality
+
+        // Add project details to the first slide
+//        $detailsShape = $slide1->createRichTextShape()
+//            ->setHeight(300)
+//            ->setWidth(600)
+//            ->setOffsetX(50)
+//            ->setOffsetY(150);
+//        $detailsShape->createTextRun("Project No: " . $project->project_no . "\n")
+//            ->getFont()->setSize(18);
+//        $detailsShape->createTextRun("Project Area: " . $project->project_area . "\n")
+//            ->getFont()->setSize(18);
+
+        // Convert findings collection to array and chunk it into groups of 3
+        $findings = $project->findings->toArray();
+        $chunks = array_chunk($findings, 3); // Group findings in sets of 3 per slide
+
+        // Loop over each chunk to create slides
+        foreach ($chunks as $chunk) {
+            // Create a new slide for each set of findings
+            $newSlide = $ppt->createSlide();
+
+            // Offset variables for positioning each finding in the slide
+            $xOffset = 20;
+            $yOffset = 50;
+
+            foreach ($chunk as $finding) {
+                // Add the "Finding" title with green background, taking the full section width
+                $titleShape = $newSlide->createRichTextShape()
+                    ->setHeight(40)
+                    ->setWidth($sectionWidth)
+                    ->setOffsetX($xOffset)
+                    ->setOffsetY($yOffset);
+                $titleShape->getFill()->setFillType(Fill::FILL_SOLID)->setStartColor(new Color('FF008080'));
+                $titleTextRun = $titleShape->createTextRun("FINDING");
+                $titleTextRun->getFont()->setBold(true)->setSize(16)->setColor(new Color('FFFFFFFF'));
+
+                // Add image proportionally scaled below the "FINDING" title
+                $imageYOffset = $yOffset + 50; // Offset below the title
+                if (!empty($finding['image'])) {
+                    $imagePath = storage_path('app/public/' . $finding['image']);
+                    if (file_exists($imagePath)) {
+                        $imageShape = $newSlide->createDrawingShape();
+                        $imageShape->setPath($imagePath);
+
+                        // Set image dimensions proportional to the section
+                        $imageShape->setWidth($sectionWidth)
+                            ->setHeight(4.45 * 28.35) // Set height to 4.45 cm (1 cm = 28.35 points)
+                            ->setOffsetX($xOffset) // Center align within section
+                            ->setOffsetY($imageYOffset);
+                    }
+                }
+
+                // Add finding details below the image
+                $detailsYOffset = $imageYOffset + (4.45 * 28.35) + 10; // Space between image and details
+                $detailsShape = $newSlide->createRichTextShape()
+                    ->setHeight(200)
+                    ->setWidth($sectionWidth)
+                    ->setOffsetX($xOffset)
+                    ->setOffsetY($detailsYOffset);
+
+                $detailsShape->createTextRun("Date: " . ($finding['date'] ?? 'N/A') . "\n")
+                    ->getFont()->setSize(12);
+                $detailsShape->createTextRun("Area: " . ($finding['area'] ?? 'N/A') . "\n")
+                    ->getFont()->setSize(12);
+                $detailsShape->createTextRun("Supervisor: " . ($finding['supervisor'] ?? 'N/A') . "\n")
+                    ->getFont()->setSize(12);
+                $detailsShape->createTextRun("Safety Officer: " . ($finding['safety_officer'] ?? 'N/A') . "\n")
+                    ->getFont()->setSize(12);
+
+                // Add detailed description and status
+                $detailsShape->createTextRun("\nDetailed Description:\n")
+                    ->getFont()->setBold(true)->setSize(12);
+                $detailsShape->createTextRun("Finding: " . ($finding['finding_description'] ?? 'N/A') . "\n")
+                    ->getFont()->setSize(10);
+                $detailsShape->createTextRun("Action: " . ($finding['action'] ?? 'N/A') . "\n")
+                    ->getFont()->setSize(10);
+                $detailsShape->createTextRun("Status: " . ($finding['status'] ?? 'N/A') . "\n")
+                    ->getFont()->setSize(10);
+
+                // Update xOffset for the next finding in the same row
+                $xOffset += $sectionWidth + 10; // Include padding between sections
+            }
+        }
+
+        // Save the presentation to a temporary file
+        $fileName = 'project_' . $project->id . '_generated.pptx';
+        $tempFile = storage_path('app/public/' . $fileName);
+
+        $oWriterPPTX = IOFactory::createWriter($ppt, 'PowerPoint2007');
+        $oWriterPPTX->save($tempFile);
+
+        // Return the file as a download
+        return response()->download($tempFile)->deleteFileAfterSend(true);
+    }
+
+
+
+
+
+
+
 
 }

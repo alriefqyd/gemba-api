@@ -15,6 +15,10 @@ class Project extends Model
         return $this->hasMany(Findings::class);
     }
 
+    public function creator(){
+        return $this->hasOne(User::class,'id','created_by');
+    }
+
     public static function boot() {
         parent::boot();
 

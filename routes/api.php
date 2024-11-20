@@ -26,7 +26,7 @@ Route::group(["middleware" => ["auth:sanctum"]], function () {
     Route::put('/project/{project:id}', [\App\Http\Controllers\ProjectController::class,'update']);
     Route::delete('/project/{project:id}', [\App\Http\Controllers\ProjectController::class,'delete']);
     Route::get('/project/{project:id}', [\App\Http\Controllers\ProjectController::class,'show']);
-
+    Route::get('/project/{project}/pptx', [\App\Http\Controllers\ProjectController::class, 'generatePptx']);
     Route::post('/logout', function (Request $request){
         $request->user()->currentAccessToken()->delete();
         return response()->noContent();
@@ -74,3 +74,6 @@ Route::post("/login", function (Request $request){
         'token' => $user->createToken($request->device_name)->plainTextToken
     ]);
 });
+
+
+
