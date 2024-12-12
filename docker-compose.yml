@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  nginx:
+    container_name: nginx_gemba
+    image: nginx:alpine
+    ports:
+      - "4040:80"
+    depends_on:
+      - app
+      - db
+    volumes:
+      - ./storage:/var/www/storage
+      - ./public:/var/www/public
+      - ./nginx/conf.d:/etc/nginx/conf.d
+    networks:
+      - app-network
+
+  db:
+    image: mysql
+    container_name: mysql_gemba
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./mysql/data:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: gemba
+      MYSQL_ROOT_PASSWORD: password
+    networks:
+      - app-network
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: phpmyadmin_gemba
+    ports:
+      - "3400:80"
+    depends_on:
+      - db
+    networks:
+      - app-network
+
+  app:
+    build:
+      context: .
+    ports:
+      - "9000:9000"  # PHP-FPM port
+    volumes:
+      - .:/var/www
+    depends_on:
+      - db
+    networks:
+      - app-network
+
+  mailhog:
+    image: mailhog/mailhog
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
